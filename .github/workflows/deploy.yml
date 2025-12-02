@@ -1,4 +1,4 @@
-name: Build and Deploy to AWS EC2
+name: Build and Deploy Frontend to AWS EC2
 
 on:
   push:
@@ -36,6 +36,12 @@ jobs:
         # Copy all files
         COPY . .
         
+        # Set build-time environment variable for API URL
+        ARG VITE_API_URL=http://backend-app:5000
+        ARG REACT_APP_API_URL=http://backend-app:5000
+        ENV VITE_API_URL=$VITE_API_URL
+        ENV REACT_APP_API_URL=$REACT_APP_API_URL
+        
         # Build the app
         RUN npm run build
         
@@ -53,7 +59,7 @@ jobs:
         # Expose port
         EXPOSE 3000
         
-        # Start the app
+        # Start the app with CORS proxy disabled (serve will handle it)
         CMD ["serve", "-s", "dist", "-l", "3000"]
         EOF
     
@@ -69,7 +75,9 @@ jobs:
     - name: Build Docker image
       run: |
         docker build -t ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest \
-                     -t ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }} .
+                     -t ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+                     --build-arg VITE_API_URL=http://backend-app:5000 \
+                     --build-arg REACT_APP_API_URL=http://backend-app:5000 .
     
     - name: Test Docker image
       run: |
@@ -91,7 +99,7 @@ jobs:
         docker push ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
     
     - name: Image digest
-      run: echo "Image pushed successfully!"
+      run: echo "Frontend image pushed successfully!"
 
   deploy:
     needs: build
@@ -106,7 +114,7 @@ jobs:
         username: ${{ secrets.EC2_USERNAME }}
         key: ${{ secrets.EC2_SSH_KEY }}
         script: |
-          echo "🚀 Starting deployment on AWS EC2..."
+          echo "🚀 Starting frontend deployment on AWS EC2..."
           
           # Login to Docker Hub
           echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
@@ -144,13 +152,15 @@ jobs:
           echo "🌐 Setting up Docker network..."
           docker network create my-app-network 2>/dev/null || echo "Network already exists"
           
-          # Run new container
+          # Run new container with environment variables
           echo "▶️  Starting new container..."
           docker run -d \
             --name reactjs-app \
             --network my-app-network \
             -p 3000:3000 \
             --restart unless-stopped \
+            -e VITE_API_URL=http://backend-app:5000 \
+            -e REACT_APP_API_URL=http://backend-app:5000 \
             ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
           
           # Wait for container to start
@@ -175,7 +185,7 @@ jobs:
           echo "📊 Current container status:"
           docker ps -a | grep reactjs-app
           
-          echo "🎉 Deployment completed successfully!"
+          echo "🎉 Frontend deployment completed successfully!"
     
     - name: Verify Deployment
       uses: appleboy/ssh-action@v1.0.0
@@ -184,7 +194,7 @@ jobs:
         username: ${{ secrets.EC2_USERNAME }}
         key: ${{ secrets.EC2_SSH_KEY }}
         script: |
-          echo "🔍 Verifying deployment..."
+          echo "🔍 Verifying frontend deployment..."
           
           # Check container logs (last 30 lines)
           echo "📋 Container logs:"
@@ -198,15 +208,20 @@ jobs:
           echo "🌐 Testing application response..."
           curl -f http://localhost:3000 || echo "⚠️  Warning: Application not responding on port 3000"
           
+          # Test network connectivity to backend
+          echo "🔗 Testing backend connectivity from frontend container..."
+          docker exec reactjs-app wget -qO- http://backend-app:5000/api/users 2>/dev/null || echo "⚠️  Cannot reach backend from frontend"
+          
           echo "✅ Verification complete!"
     
     - name: Deployment notification
       if: always()
       run: |
         if [ "${{ job.status }}" == "success" ]; then
-          echo "🎉 ✅ Deployment successful!"
+          echo "🎉 ✅ Frontend deployment successful!"
           echo "Your React app is now running at http://${{ secrets.EC2_HOST }}:3000"
+          echo "Backend API should be accessible at: http://backend-app:5000 (from within Docker network)"
         else
-          echo "❌ Deployment failed!"
+          echo "❌ Frontend deployment failed!"
           echo "Check the logs above for more details."
         fi
