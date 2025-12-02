@@ -120,6 +120,22 @@ jobs:
           docker stop reactjs-app 2>/dev/null || true
           docker rm reactjs-app 2>/dev/null || true
           
+          # Kill any process using port 3000
+          echo "🔍 Checking for processes on port 3000..."
+          if lsof -ti:3000 > /dev/null 2>&1; then
+            echo "⚠️  Port 3000 is in use, killing process..."
+            lsof -ti:3000 | xargs kill -9 2>/dev/null || true
+            sleep 2
+          fi
+          
+          # Remove any containers using port 3000
+          CONTAINER_ON_PORT=$(docker ps -a --filter "publish=3000" --format "{{.Names}}" 2>/dev/null || true)
+          if [ ! -z "$CONTAINER_ON_PORT" ]; then
+            echo "🗑️  Removing container using port 3000: $CONTAINER_ON_PORT"
+            docker stop $CONTAINER_ON_PORT 2>/dev/null || true
+            docker rm $CONTAINER_ON_PORT 2>/dev/null || true
+          fi
+          
           # Run new container
           echo "▶️  Starting new container..."
           docker run -d \
