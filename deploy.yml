@@ -1,0 +1,150 @@
+name: Build and Deploy to AWS EC2
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+  IMAGE_NAME: reactjs-app
+
+jobs:
+  # Job 1: Build, Test, and Push Docker Image
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Login to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    
+    - name: Build Docker image
+      run: |
+        docker build -t ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest \
+                     -t ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }} .
+    
+    - name: Test Docker image
+      run: |
+        docker run --rm -d --name reactjs-service \
+          -p 3000:3000 \
+          ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+        
+        sleep 10
+        
+        # Check if container is running
+        docker ps | grep reactjs-service || exit 1
+        
+        # Stop test container
+        docker stop reactjs-service
+    
+    - name: Push Docker image to Docker Hub
+      run: |
+        docker push ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+        docker push ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+    
+    - name: Image digest
+      run: echo "Image pushed successfully!"
+
+  # Job 2: Deploy to AWS EC2 (only on main/master branch push)
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.event_name == 'push'
+    
+    steps:
+    - name: Deploy to AWS EC2
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USERNAME }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          echo "🚀 Starting deployment on AWS EC2..."
+          
+          # Login to Docker Hub
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+          
+          # Pull the latest image
+          echo "📦 Pulling latest Docker image..."
+          docker pull ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+          
+          # Stop and remove old container if exists
+          echo "🛑 Stopping old container..."
+          docker stop reactjs-app 2>/dev/null || true
+          docker rm reactjs-app 2>/dev/null || true
+          
+          # Run new container
+          echo "▶️  Starting new container..."
+          docker run -d \
+            --name reactjs-app \
+            -p 3000:3000 \
+            --restart unless-stopped \
+            ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+          
+          # Wait for container to start
+          sleep 5
+          
+          # Check if container is running
+          if docker ps | grep -q reactjs-app; then
+            echo "✅ Container is running successfully!"
+            docker ps | grep reactjs-app
+          else
+            echo "❌ Container failed to start!"
+            echo "Container logs:"
+            docker logs reactjs-app
+            exit 1
+          fi
+          
+          # Clean up old Docker images (keep last 3)
+          echo "🧹 Cleaning up old images..."
+          docker images | grep "${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}" | tail -n +4 | awk '{print $3}' | xargs -r docker rmi -f 2>/dev/null || true
+          
+          # Show container status
+          echo "📊 Current container status:"
+          docker ps -a | grep reactjs-app
+          
+          echo "🎉 Deployment completed successfully!"
+    
+    - name: Verify Deployment
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USERNAME }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          echo "🔍 Verifying deployment..."
+          
+          # Check container logs (last 30 lines)
+          echo "📋 Container logs:"
+          docker logs --tail 30 reactjs-app
+          
+          # Check container health
+          echo "🏥 Container health check:"
+          docker inspect reactjs-app --format='{{.State.Status}}'
+          
+          # Test if app is responding
+          echo "🌐 Testing application response..."
+          curl -f http://localhost:3000 || echo "⚠️  Warning: Application not responding on port 3000"
+          
+          echo "✅ Verification complete!"
+    
+    - name: Deployment notification
+      if: always()
+      run: |
+        if [ "${{ job.status }}" == "success" ]; then
+          echo "🎉 ✅ Deployment successful!"
+          echo "Your Next.js app is now running at http://${{ secrets.EC2_HOST }}:3000"
+        else
+          echo "❌ Deployment failed!"
+          echo "Check the logs above for more details."
+        fi
