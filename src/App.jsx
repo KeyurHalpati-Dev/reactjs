@@ -8,7 +8,7 @@ function App() {
   const [users, setUsers] = useState([])
 
   async function fetchUsers() {
-    const response = await axios.get('http://backend-app:3000/api/users')
+    const response = await axios.get('http://backend-app:5000/api/users')
 
     setUsers(response.data.data)
   }
