@@ -180,7 +180,12 @@ jobs:
             sleep 2
           fi
           
+          # CRITICAL FIX: Remove old nginx.conf if it exists (could be a directory)
+          echo "🧹 Cleaning up old nginx configuration..."
+          sudo rm -rf /tmp/nginx.conf 2>/dev/null || true
+          
           # Create nginx configuration with CORRECT proxy_pass
+          echo "📝 Creating Nginx configuration..."
           cat > /tmp/nginx.conf << 'NGINXEOF'
           events {
               worker_connections 1024;
@@ -261,6 +266,15 @@ jobs:
           }
           NGINXEOF
           
+          # Verify the file was created correctly
+          if [ -f /tmp/nginx.conf ]; then
+            echo "✅ Nginx config file created successfully"
+            echo "📄 Config file size: $(wc -l < /tmp/nginx.conf) lines"
+          else
+            echo "❌ Failed to create nginx.conf"
+            exit 1
+          fi
+          
           # Start Nginx container
           echo "🚀 Starting Nginx reverse proxy..."
           docker run -d \
@@ -280,8 +294,18 @@ jobs:
             docker ps | grep nginx-proxy
           else
             echo "❌ Nginx proxy failed to start!"
+            echo "📋 Nginx logs:"
             docker logs nginx-proxy
             exit 1
+          fi
+          
+          # Test Nginx configuration
+          echo "🔍 Testing Nginx configuration..."
+          if docker exec nginx-proxy nginx -t 2>&1 | grep -q "successful"; then
+            echo "✅ Nginx configuration is valid!"
+          else
+            echo "⚠️  Nginx configuration may have issues"
+            docker exec nginx-proxy nginx -t
           fi
           
           # Clean up old Docker images (keep last 3)
@@ -302,6 +326,9 @@ jobs:
         key: ${{ secrets.EC2_SSH_KEY }}
         script: |
           echo "🔍 Verifying frontend deployment..."
+          
+          # Wait a bit more for services to fully start
+          sleep 5
           
           # Check frontend container logs
           echo "📋 Frontend container logs (last 20 lines):"
@@ -330,6 +357,9 @@ jobs:
           echo "🌐 Testing frontend through Nginx..."
           if curl -f http://localhost/ >/dev/null 2>&1; then
             echo "✅ Frontend is accessible through Nginx!"
+            echo "Sample response (first 200 chars):"
+            curl -s http://localhost/ | head -c 200
+            echo ""
           else
             echo "⚠️  Warning: Frontend not responding through Nginx"
           fi
@@ -347,10 +377,10 @@ jobs:
           
           # Test internal Docker network connectivity
           echo "🔗 Testing Docker network connectivity..."
-          if docker exec reactjs-app wget -qO- http://backend-app:5000/api/users >/dev/null 2>&1; then
-            echo "✅ Frontend can reach backend via Docker network!"
+          if docker run --rm --network my-app-network alpine/curl:latest -f http://reactjs-app:3000 >/dev/null 2>&1; then
+            echo "✅ Frontend is accessible via Docker network!"
           else
-            echo "⚠️  Warning: Cannot reach backend from frontend container"
+            echo "⚠️  Warning: Cannot reach frontend via Docker network"
           fi
           
           # Show network information
@@ -391,6 +421,7 @@ jobs:
           echo "  • Port 80 already in use"
           echo "  • Backend container not running"
           echo "  • Network connectivity issues"
+          echo "  • nginx.conf file creation failed"
           echo ""
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         fi
