@@ -30,7 +30,7 @@ function App() {
           <img src={reactLogo} className="logo react" alt="React logo" />
         </a>
       </div>
-      <h1>Hey ankit😎</h1>
+      <h1>Hey pyaj😎</h1>
       <div className="card">
         <div className="user-list">
           {users.map(user => (
