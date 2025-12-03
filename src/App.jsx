@@ -7,17 +7,23 @@ import axios from 'axios'
 function App() {
   const [users, setUsers] = useState([])
 
-  async function fetchUsers() {
-    try {
-      const response = await axios.get('/api/users')
-  
-      setUsers(response.data.data)
-    } catch (error) {
-      console.error('Error fetching users:', error)
+  useEffect(() => {
+    async function fetchUsers() {
+      try {
+        setLoading(true)
+        const response = await axios.get('/api/users')
+        setUsers(response.data.data)
+        setError(null)
+      } catch (error) {
+        console.error('Error fetching users:', error)
+        setError('Failed to load users')
+      } finally {
+        setLoading(false)
+      }
     }
-  }
 
-  fetchUsers()
+    fetchUsers()
+  }, [])
 
   return (
     <>
