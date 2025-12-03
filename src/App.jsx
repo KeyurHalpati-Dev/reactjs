@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
@@ -7,23 +7,18 @@ import axios from 'axios'
 function App() {
   const [users, setUsers] = useState([])
 
-  useEffect(() => {
+   useEffect(() => {
     async function fetchUsers() {
       try {
-        setLoading(true)
         const response = await axios.get('/api/users')
         setUsers(response.data.data)
-        setError(null)
       } catch (error) {
         console.error('Error fetching users:', error)
-        setError('Failed to load users')
-      } finally {
-        setLoading(false)
-      }
+      } 
     }
 
     fetchUsers()
-  }, [])
+  }, []) 
 
   return (
     <>
