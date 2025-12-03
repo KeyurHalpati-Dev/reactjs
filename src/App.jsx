@@ -9,7 +9,7 @@ function App() {
 
   async function fetchUsers() {
     try {
-      const response = await axios.get('http://backend-app:5000/api/users')
+      const response = await axios.get('/api/users')
   
       setUsers(response.data.data)
     } catch (error) {
