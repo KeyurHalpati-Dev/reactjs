@@ -180,7 +180,7 @@ jobs:
             sleep 2
           fi
           
-          # Create nginx configuration
+          # Create nginx configuration with CORRECT proxy_pass
           cat > /tmp/nginx.conf << 'NGINXEOF'
           events {
               worker_connections 1024;
@@ -226,9 +226,9 @@ jobs:
                       proxy_read_timeout 60s;
                   }
                   
-                  # Backend API requests
+                  # Backend API requests - KEEPS /api in path
                   location /api/ {
-                      proxy_pass http://backend/;
+                      proxy_pass http://backend/api/;
                       proxy_http_version 1.1;
                       proxy_set_header Host $host;
                       proxy_set_header X-Real-IP $remote_addr;
@@ -338,6 +338,9 @@ jobs:
           echo "🔗 Testing backend API through Nginx..."
           if curl -f http://localhost/api/users >/dev/null 2>&1; then
             echo "✅ Backend API is accessible through Nginx!"
+            echo "Sample response:"
+            curl -s http://localhost/api/users | head -c 200
+            echo ""
           else
             echo "⚠️  Warning: Backend API not responding (make sure backend is deployed)"
           fi
